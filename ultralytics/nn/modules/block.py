@@ -15,13 +15,16 @@ from .transformer import TransformerBlock
 __all__ = (
     "C1",
     "C2",
+    "C2PDS",
     "C2PSA",
     "C3",
     "C3TR",
     "CIB",
     "DFL",
     "ELAN1",
+    "IN",
     "PSA",
+    "S2AFM",
     "SPP",
     "SPPELAN",
     "SPPF",
@@ -45,19 +48,17 @@ __all__ = (
     "HGBlock",
     "HGStem",
     "ImagePoolingAttn",
+    "MultiIn",
     "Proto",
     "RepC3",
     "RepNCSPELAN4",
     "RepVGGDW",
     "ResNetLayer",
     "SCDown",
-    "TorchVision",
-    "IN",
-    "MultiIn",
-    "S2AFM",
     "SPDConv",
-    "C2PDS"
+    "TorchVision",
 )
+
 
 class IN(nn.Module):
     def __init__(self):
@@ -74,12 +75,13 @@ class MultiIn(nn.Module):  # stereo attention block
         self.img1_bands = img1_bands
 
     def forward(self, x):
-        x1, x2 = x[:, :self.img1_bands, :, :], x[:, self.img1_bands:, :, :]
+        x1, x2 = x[:, : self.img1_bands, :, :], x[:, self.img1_bands :, :, :]
         if self.img_idx == 1:
             x = x1
         else:
             x = x2
         return x
+
 
 class AFA(nn.Module):
     def __init__(self, channels, reduction=16):
@@ -93,9 +95,7 @@ class AFA(nn.Module):
 
     def forward(self, f_rgb, f_msi):
         # 上采样 MSI
-        f_msi_up = F.interpolate(
-            f_msi, size=f_rgb.shape[2:], mode='bilinear', align_corners=False
-        )
+        f_msi_up = F.interpolate(f_msi, size=f_rgb.shape[2:], mode="bilinear", align_corners=False)
 
         rgb_conv = self.conv_rgb(f_rgb)
         msi_conv = self.conv_msi(f_msi_up)
@@ -132,7 +132,7 @@ class CSA(nn.Module):
         self.k_msi = nn.Conv2d(channels, channels, 1)
         self.v_msi = nn.Conv2d(channels, channels, 1)
 
-        self.scale = channels ** -0.5
+        self.scale = channels**-0.5
 
     def forward(self, f_rgb, f_msi):
         B, C, H, W = f_rgb.shape
@@ -146,9 +146,7 @@ class CSA(nn.Module):
         k_msi = reshape(self.k_msi(f_msi))
         v_msi = reshape(self.v_msi(f_msi))
 
-        attn_rgb = torch.softmax(
-            torch.bmm(q_rgb, k_msi.transpose(1, 2)) * self.scale, dim=-1
-        )
+        attn_rgb = torch.softmax(torch.bmm(q_rgb, k_msi.transpose(1, 2)) * self.scale, dim=-1)
         f_rgb_hat = torch.bmm(attn_rgb, v_msi).permute(0, 2, 1).view(B, C, H, W)
 
         # MSI ← RGB
@@ -156,12 +154,11 @@ class CSA(nn.Module):
         k_rgb = reshape(self.k_rgb(f_rgb))
         v_rgb = reshape(self.v_rgb(f_rgb))
 
-        attn_msi = torch.softmax(
-            torch.bmm(q_msi, k_rgb.transpose(1, 2)) * self.scale, dim=-1
-        )
+        attn_msi = torch.softmax(torch.bmm(q_msi, k_rgb.transpose(1, 2)) * self.scale, dim=-1)
         f_msi_hat = torch.bmm(attn_msi, v_rgb).permute(0, 2, 1).view(B, C, H, W)
 
         return f_rgb_hat, f_msi_hat
+
 
 class CA(nn.Module):
     def __init__(self, channels, reduction=16):
@@ -182,6 +179,7 @@ class CA(nn.Module):
 
         w = torch.sigmoid(mlp(gap) + mlp(gmp))
         return f * w
+
 
 class S2AFM(nn.Module):
     def __init__(self, channels):
@@ -210,17 +208,16 @@ class S2AFM(nn.Module):
 
 
 class PDSConv(nn.Module):
-    """
-    Partial Depthwise Separable Convolution (PDSConv)
-    """
+    """Partial Depthwise Separable Convolution (PDSConv)."""
+
     def __init__(
         self,
         in_channels,
         out_channels,
         kernel_size=3,
         stride=1,
-        ratio_d=0.5,   # 深度可分离卷积分支比例
-        ratio_s=0.25   # 标准卷积分支比例
+        ratio_d=0.5,  # 深度可分离卷积分支比例
+        ratio_s=0.25,  # 标准卷积分支比例
     ):
         super().__init__()
         padding = kernel_size // 2
@@ -236,39 +233,21 @@ class PDSConv(nn.Module):
 
         # 深度可分离卷积分支（DWConv）
         self.dw_conv = nn.Conv2d(
-            c_d, c_d,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            groups=c_d,
-            bias=False
+            c_d, c_d, kernel_size=kernel_size, stride=stride, padding=padding, groups=c_d, bias=False
         )
 
         # 标准卷积分支（Conv）
-        self.std_conv = nn.Conv2d(
-            c_s, c_s,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            bias=False
-        )
+        self.std_conv = nn.Conv2d(c_s, c_s, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
 
         # 逐点卷积（PWConv）
-        self.pw_conv = nn.Conv2d(
-            c_d + c_s + c_i,
-            out_channels,
-            kernel_size=1,
-            bias=False
-        )
+        self.pw_conv = nn.Conv2d(c_d + c_s + c_i, out_channels, kernel_size=1, bias=False)
 
         self.bn = nn.BatchNorm2d(out_channels)
         self.act = nn.ReLU(inplace=True)
 
     def forward(self, x):
         # 通道拆分
-        x_d, x_s, x_i = torch.split(
-            x, [self.c_d, self.c_s, self.c_i], dim=1
-        )
+        x_d, x_s, x_i = torch.split(x, [self.c_d, self.c_s, self.c_i], dim=1)
 
         # 三分支计算
         y_d = self.dw_conv(x_d) if self.c_d > 0 else None
@@ -276,14 +255,12 @@ class PDSConv(nn.Module):
         y_i = x_i  # Identity
 
         # 拼接
-        y = torch.cat(
-            [t for t in (y_d, y_s, y_i) if t is not None],
-            dim=1
-        )
+        y = torch.cat([t for t in (y_d, y_s, y_i) if t is not None], dim=1)
 
         # PWConv + BN + ReLU
         y = self.act(self.bn(self.pw_conv(y)))
         return y
+
 
 class SPDConv(nn.Module):
     def __init__(self, in_channels, out_channels, scale=2, kernel_size=3, act=True):
@@ -1351,9 +1328,7 @@ class C3k(C3):
 
 
 class C2PDS(C2f):
-    """
-    Cross Stage Partial with Partial Depthwise Separable Convolution (C2PDS)
-    """
+    """Cross Stage Partial with Partial Depthwise Separable Convolution (C2PDS)."""
 
     def __init__(
         self,
@@ -1366,53 +1341,41 @@ class C2PDS(C2f):
         shortcut: bool = True,
         ratio_d: float = 0.5,
         ratio_s: float = 0.25,
-        k: int = 3
+        k: int = 3,
     ):
         super().__init__(c1, c2, n, shortcut, g, e)
 
         self.m = nn.ModuleList(
-            C3PDS(
-                self.c,
-                self.c,
-                n=2,
-                shortcut=shortcut,
-                g=g,
-                e=1.0,
-                k=k,
-                ratio_d=ratio_d,
-                ratio_s=ratio_s
-            )
+            C3PDS(self.c, self.c, n=2, shortcut=shortcut, g=g, e=1.0, k=k, ratio_d=ratio_d, ratio_s=ratio_s)
             if c3k
             else PDSConv(
-                in_channels=self.c,
-                out_channels=self.c,
-                kernel_size=k,
-                stride=1,
-                ratio_d=ratio_d,
-                ratio_s=ratio_s
+                in_channels=self.c, out_channels=self.c, kernel_size=k, stride=1, ratio_d=ratio_d, ratio_s=ratio_s
             )
             for _ in range(n)
         )
 
 
 class C3PDS(C3):
-    """
-    C3k with PDSConv replacing Bottleneck
-    """
-    def __init__(self, c1: int, c2: int, n: int = 1, shortcut: bool = True, g: int = 1, e: float = 0.5, k: int = 3, ratio_d: float = 0.5, ratio_s: float = 0.25):
+    """C3k with PDSConv replacing Bottleneck."""
+
+    def __init__(
+        self,
+        c1: int,
+        c2: int,
+        n: int = 1,
+        shortcut: bool = True,
+        g: int = 1,
+        e: float = 0.5,
+        k: int = 3,
+        ratio_d: float = 0.5,
+        ratio_s: float = 0.25,
+    ):
         super().__init__(c1, c2, n, shortcut, g, e)
         c_ = int(c2 * e)  # hidden channels
 
         self.m = nn.Sequential(
             *(
-                PDSConv(
-                    in_channels=c_,
-                    out_channels=c_,
-                    kernel_size=k,
-                    stride=1,
-                    ratio_d=ratio_d,
-                    ratio_s=ratio_s
-                )
+                PDSConv(in_channels=c_, out_channels=c_, kernel_size=k, stride=1, ratio_d=ratio_d, ratio_s=ratio_s)
                 for _ in range(n)
             )
         )
