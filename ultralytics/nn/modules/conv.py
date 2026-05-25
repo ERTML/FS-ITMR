@@ -20,11 +20,11 @@ __all__ = (
     "DWConvTranspose2d",
     "Focus",
     "GhostConv",
+    "Identity",
     "Index",
     "LightConv",
     "RepConv",
     "SpatialAttention",
-    "Identity"
 )
 
 
@@ -35,6 +35,7 @@ def autopad(k, p=None, d=1):  # kernel, padding, dilation
     if p is None:
         p = k // 2 if isinstance(k, int) else [x // 2 for x in k]  # auto-pad
     return p
+
 
 class Identity(nn.Module):
     def forward(self, x):
