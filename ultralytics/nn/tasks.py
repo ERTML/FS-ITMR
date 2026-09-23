@@ -8,24 +8,22 @@ from copy import deepcopy
 from pathlib import Path
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from ultralytics.nn.autobackend import check_class_names
 from ultralytics.nn.modules import (
-    MultiIn,
-    IN,
-    S2AFM,
-    C2PDS,
-    SPDConv,
     AIFI,
     C1,
     C2,
+    C2PDS,
     C2PSA,
     C3,
     C3TR,
     ELAN1,
+    IN,
     OBB,
     PSA,
+    S2AFM,
     SPP,
     SPPELAN,
     SPPF,
@@ -59,6 +57,7 @@ from ultralytics.nn.modules import (
     ImagePoolingAttn,
     Index,
     LRPCHead,
+    MultiIn,
     Pose,
     RepC3,
     RepConv,
@@ -68,11 +67,12 @@ from ultralytics.nn.modules import (
     RTDETRDecoder,
     SCDown,
     Segment,
+    SPDConv,
     TorchVision,
     WorldDetect,
     YOLOEDetect,
     YOLOESegment,
-    v10Detect
+    v10Detect,
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, LOGGER, YAML, colorstr, emojis
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -1334,11 +1334,9 @@ class SafeClass:
 
     def __init__(self, *args, **kwargs):
         """Initialize SafeClass instance, ignoring all arguments."""
-        pass
 
     def __call__(self, *args, **kwargs):
         """Run SafeClass instance, ignoring all arguments."""
-        pass
 
 
 class SafeUnpickler(pickle.Unpickler):
@@ -1651,17 +1649,16 @@ def parse_model(d, ch, verbose=True):
             args = [*args[1:]]
         elif m is S2AFM:
             c2 = int(sum(ch[x] for x in f) / 2)
-        elif m is C2PDS:
-            c1, c2 = ch[f], args[0]
-            args = [c1, c2, *args[1:]]
-        elif m is SPDConv:
+        elif m is C2PDS or m is SPDConv:
             c1, c2 = ch[f], args[0]
             args = [c1, c2, *args[1:]]
         elif m is IN:
             c2 = ch[f]
         elif m is MultiIn:
-            if args[0] == 1: c2 = args[1]
-            if args[0] == 2: c2 = ch[f] - args[1]
+            if args[0] == 1:
+                c2 = args[1]
+            if args[0] == 2:
+                c2 = ch[f] - args[1]
         else:
             c2 = ch[f]
 
